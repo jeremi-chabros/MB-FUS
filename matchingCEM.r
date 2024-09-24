@@ -1,23 +1,33 @@
 # =========================================================================
 # Author: Jeremi Chabros
 # Affiliations:
-# 1) University of Cambridge School of Clinical Medicine
+# 1) Department of Clinical Neurosciences, University of Cambridge
 # 2) Computational Neuroscience Outcomes Center, Department of Neurosurgery,
 #    Brigham & Women’s Hospital, Harvard Medical School
+# 3) Department of Biostatistics; Department of Epidemiology,
+#    Harvard T. H. Chan School of Public Health
 # Date: 09/09/2023
-# Description: This script prepares data by matching cases using
+# Last revised: 09/20/2024
+# Description: This script prepares data by 1) restricting controls using
+# inclusion and exclusion criteria in the trial, 2) matching cases using
 # Coarsened Exact Matching in the MatchIt package, then saves the matched
 # data, summary statistics, and density plots.
-# To avoid errors, it is recommended to run line-by-line or run twice as whole.
 # =========================================================================
 
 # Load required libraries
-library(MatchIt)
-library("marginaleffects")
-library(survival)
-library(lubridate)
-library(ggplot2)
-
+{
+    library(MatchIt)
+    library("marginaleffects")
+    library(survival)
+    library(lubridate)
+    library(ggplot2)
+    library("ggpubr")
+    library(gridExtra)
+    library(mice)
+    library(Hmisc)
+    library(dplyr)
+    library(cobalt)
+}
 # Set relative directory for the project
 # setwd("path/to/your/directory")
 setwd("/Users/jjc/Research/GBM-FUS/")
@@ -28,26 +38,43 @@ setwd("/Users/jjc/Research/GBM-FUS/")
 
 # Define functions to read and preprocess data
 read_and_process_data <- function(file_path) {
+    # Restriction based on trial inclusion and exclusion criteria
     df <- read.csv(file_path)
-    # df <- na.omit(df)
     df <- subset(df, !(is.na(DeathCensorDate) | DeathCensorDate == "Unknown"))
-    df <- subset(df, X1p19q != 1)
-    df <- subset(df, Chemotherapy == 1)
-    df <- subset(df, Radiotherapy == 1)
-    # df <- subset(df, TumorSize != "Missing")
-    # Dichotomize race
-    df$Race <- ifelse(df$Race == "White", "White", "Non-white")
+    df <- subset(df, !(is.na(DeathCensorDate) | DeathCensorDate == "Unknown"))
+    df <- subset(df, Chemotherapy == 1) # Only include patients who underwent chemotherapy
+    df <- subset(df, EOR == "Gross-Total Resection") # Only include patients who underwent GTR
+    df <- subset(df, Radiotherapy == 1) # Only include patients who underwent radiotherapy
+    df <- subset(df, KPSgeq70 == 1) # Only include patients with KPS>=70
+    df <- subset(df, Age <= 80) # Restrict patients by age
+    df <- subset(df, Age >= 18) # Restrict patients by age
+    df$MGMT[df$MGMT == "Unknown" & df$FUS == 1] <- "plchldr"
+    df <- subset(df, Location %in% c("Frontal", "Temporal", "Parietal", "Occipital"))
+    df <- subset(df, MGMT != "Unknown")
+    df$Race <- as.factor(ifelse(df$Race == "White", "White", "Non-white")) # Dichotomize race
+
+    # Condition variables/coerce into correct types
+    df$Age <- as.numeric(df$Age)
+    df$Gender <- as.factor(df$Gender)
+    df$MGMT <- as.factor(df$MGMT)
+    df$IDH <- as.factor(df$IDH)
+    df$Location <- as.factor(df$Location)
+    df$Dead <- as.factor(df$Dead)
+    df$Progression <- as.factor(df$Progression)
+    df$FUS <- as.factor(df$FUS)
+    df$TumorSize <- as.numeric(df$TumorSize)
+    mode_MGMT <- names(sort(table(df$MGMT), decreasing = TRUE))[1]
+    df$MGMT[df$MGMT == "plchldr"] <- "Methylated"
     return(df)
 }
 
 # Define function for matching
-perform_matching <- function(df, formula, method, distance, cutpoints, ratio) {
+perform_matching <- function(df, formula, method, distance, cutpoints) {
     m.out <- matchit(formula,
         data = df,
         method = method,
         distance = distance,
-        cutpoints = cutpoints,
-        ratio = ratio
+        cutpoints = cutpoints
     )
     return(m.out)
 }
@@ -55,7 +82,7 @@ perform_matching <- function(df, formula, method, distance, cutpoints, ratio) {
 # Function to save density plots
 save_density_plot <- function(m.out, which_vars, file_path) {
     png(file = file_path, units = "in", width = 5, height = 5, res = 300)
-    plot(m.out, type = "density", interactive = FALSE, which.xs = which_vars, main="")
+    plot(m.out, type = "density", interactive = FALSE, which.xs = which_vars)
     title(main = "")
     dev.off()
 }
@@ -65,68 +92,48 @@ save_density_plot <- function(m.out, which_vars, file_path) {
 # =========================================================================
 
 # Read and preprocess data
-file_path <- "data/FinalData.csv"
+# file_path <- "data/FinalData.csv"
+file_path <- "/Users/jjc/Research/GBM-FUS/code/rv_result_new.csv"
 df <- read_and_process_data(file_path)
 
-trt <- subset(df, TumorSize != "Unknown")
-trt$TumorSize <- as.numeric(trt$TumorSize)
-df$TumorSize[df$TumorSize == "Unknown"] <- median(trt$TumorSize)
-df$TumorSize[is.na(df$TumorSize)] <- as.numeric(median(trt$TumorSize))
-df$TumorSize <- as.numeric(df$TumorSize)
+{
+    # Check balance prior to matching
+    m.out0 <- matchit(as.formula(FUS ~ Age + Gender + Race + IDH + MGMT + TumorSize),
+        data = df,
+        method = NULL, distance = "glm"
+    )
+    m.out0
+    summary(m.out0)
 
-# Define model formula
-mymodel <- as.formula(FUS ~ Age + Gender + Race + TumorSize)
-# mymodel <- as.formula(FUS ~ Age + Gender + Race + TumorSize + IDH)
+    # Perform matching
+    cutpoints <- list(
+        Age = "q5"
+    )
 
-m.out0 <- matchit(mymodel,
-    data = df,
-    method = NULL, distance = "glm"
-)
-m.out0
+    m.out2 <- matchit(as.formula(FUS ~ IDH + Age + MGMT),
+        data = df,
+        method = "cem",
+        distance = "glm",
+        cutpoints = cutpoints,
+        estimand = 'ATT',
+        k2k = FALSE
+    )
+    summary(m.out2)
+}
 
-# Perform matching
-cutpoints <- list(Age = c(0, 20, 40, 60, 80, 100), TumorSize = "q3")
-ratio <- 1
-m.out2 <- perform_matching(df, mymodel, "cem", "glm", cutpoints, ratio)
-
-summary(m.out2)
+matched_data <- match.data(m.out2)
+bal.tab(m.out2, data = m.out2, all.vars = TRUE, un = TRUE) # print balance measures table (unadjusted vs. adjusted)
 
 # Save summary to a text file
 sink("results/CEM_summary.txt")
 summary(m.out2, un = FALSE)
 sink()
 
-control <- subset(match.data(m.out2), FUS == 0)
-summary(control)
-
-table(control$Gender)
-table(control$Race)
-table(control$Location)
-table(control$MGMT)
-table(control$IDH)
-
-# Save density plots to PNG files
-# save_density_plot(m.out2, ~ Age + Gender + Race, "results/matching_check1.png")
-# save_density_plot(m.out2, ~TumorSize, "results/matching_check2.png")
+# Plot and save matching results
+save_density_plot(m.out2, ~ Age + MGMT + IDH, "results/matching_check.png")
 
 # Save matched data to a CSV file
 matched_data <- match.data(m.out2)
 write.csv(matched_data, "data/MatchedData.csv", row.names = FALSE)
 
 # =========================================================================
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
