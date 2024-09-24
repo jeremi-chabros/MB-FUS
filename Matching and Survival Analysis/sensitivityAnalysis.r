@@ -49,7 +49,7 @@ run_cox_analysis <- function(df, surv_model) {
   list(res = res.cox, summary = summary(res.cox), zph = cox.zph(res.cox))
 }
 
-analyze_cox_models <- function(cox_models) {
+analyze_cox_models <- function(cox_models, survt) {
   # Initialize list to store results for each model
   table_rows <- vector("list", length = length(cox_models))
   names(table_rows) <- names(cox_models)
@@ -89,7 +89,7 @@ analyze_cox_models <- function(cox_models) {
   }
   
   # Save sensitivity analysis results to file
-  sink("results/sensitivity_analysis.txt")
+  sink(paste("results/sensitivity_analysis_",survt,".txt"))
   print(table_rows)
   sink()
   
@@ -122,5 +122,5 @@ cox_models_PFS <- list(
   all_frailty = run_cox_analysis(df, as.formula(Surv(PFS, Progression) ~ FUS + TumorSize + Gender + Race + frailty(subclass)))
 )
 
-analyze_cox_models(cox_models_OS)
-analyze_cox_models(cox_models_PFS)
+analyze_cox_models(cox_models_OS, "OS")
+analyze_cox_models(cox_models_PFS, "PFS")
