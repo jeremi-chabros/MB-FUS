@@ -102,6 +102,7 @@ save_plot <- function(plot, file_name) {
 run_cox_analysis <- function(df, surv_model) {
   res.cox <- coxph(surv_model, data = df)
   list(res = res.cox, summary = summary(res.cox), zph = cox.zph(res.cox))
+}
 
 save_cox_plot <- function(fit, vname, supp_ext) {
   p_value <- summary(fit)$coefficients[, "Pr(>|z|)"][1]
@@ -217,6 +218,3 @@ save_cox_plot(fit, "OS", max(subset(df, FUS == 1)$Survival))
 # df$Progression <- as.factor(df$Progression)
 fit <- coxph(Surv(PFS, Progression) ~ FUS + TumorSize, data = df, x = TRUE)
 save_cox_plot(fit, "PFS", max(subset(df, FUS == 1)$PFS))
-
-
-# =========================================================================
