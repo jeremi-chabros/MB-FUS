@@ -17,15 +17,6 @@
 # Load required libraries
 {
     library(MatchIt)
-    library("marginaleffects")
-    library(survival)
-    library(lubridate)
-    library(ggplot2)
-    library("ggpubr")
-    library(gridExtra)
-    library(mice)
-    library(Hmisc)
-    library(dplyr)
     library(cobalt)
 }
 # Set relative directory for the project
@@ -68,6 +59,7 @@ read_and_process_data <- function(file_path) {
     return(df)
 }
 
+
 # Define function for matching
 perform_matching <- function(df, formula, method, distance, cutpoints) {
     m.out <- matchit(formula,
@@ -107,7 +99,7 @@ df <- read_and_process_data(file_path)
 
     # Perform matching
     cutpoints <- list(
-        Age = "q5"
+        Age = "q5", TumorSize = "q3"
     )
 
     m.out2 <- matchit(as.formula(FUS ~ IDH + Age + MGMT),

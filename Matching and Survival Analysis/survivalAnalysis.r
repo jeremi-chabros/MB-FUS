@@ -18,9 +18,6 @@
   library(lubridate)
   library(ggplot2)
   library(ggsurvfit)
-  library(gtsummary)
-  library(tidycmprsk)
-  library(rms)
   library(survminer)
   library(adjustedCurves)
 }
@@ -65,7 +62,8 @@ generate_survival_curve_plot <- function(df, fit_surv, vname) {
     # surv.median.line = "hv",
     legend.labs = c("BWH", "BT008"),
     pval = TRUE,
-    xlim = c(0, 70),
+    xlim = c(0, 65),
+    break.time.by = 10,
     ggtheme = theme(
       text = element_text(size = 20), # Base text size; affects titles and labels
       axis.title = element_text(size = 20), # X and Y axis titles
@@ -78,9 +76,9 @@ generate_survival_curve_plot <- function(df, fit_surv, vname) {
     # xlim = c(0, 54.6)
   )
   x <- which(plot$plot$scales$find("x"))
-  plot$plot$scales$scales[[x]] <- scale_x_continuous(breaks = seq(0, 70, by = 10))
+  plot$plot$scales$scales[[x]] <- scale_x_continuous(breaks = seq(0, 65, by = 10))
   x <- which(plot$table$scales$find("x"))
-  plot$table$scales$scales[[x]] <- scale_x_continuous(breaks = seq(0, 70, by = 10))
+  plot$table$scales$scales[[x]] <- scale_x_continuous(breaks = seq(0, 65, by = 10))
 
   return(plot)
 }
@@ -150,7 +148,7 @@ save_cox_plot <- function(fit, vname, supp_ext) {
       hjust = 1, vjust = 1,
       size = 5,
       color = "black"
-    ) + scale_x_continuous(limits = c(0, 70), breaks = seq(0, 70, by = 10))
+    ) + scale_x_continuous(limits = c(0, 65), breaks = seq(0, 65, by = 10))
   ggsave(filename = paste0("results/", vname, " COX survival curve.svg"), plot = ptsv, width = 18, height = 9.75, dpi = 300, unit = "cm")
 }
 
@@ -188,9 +186,10 @@ surv_model <- as.formula(Surv(df$Survival, df$Dead) ~ FUS + TumorSize)
 survdiff(surv_model, df)
 survfit2(surv_model, data = df)
 cox_results <- run_cox_analysis(df, surv_model)
-
-# res.cox <- coxph(surv_model, data = df, weights = weights)
-# list(res = res.cox, summary = summary(res.cox), zph = cox.zph(res.cox))
+print("OS:")
+print(AIC(cox_results$res))
+print(BIC(cox_results$res))
+print("\n")
 
 # Save Cox Analysis OS Results
 sink("results/cox_results.txt")
@@ -202,8 +201,10 @@ surv_model <- as.formula(Surv(df$PFS, df$Progression) ~ FUS + TumorSize)
 survdiff(surv_model, df)
 survfit2(surv_model, data = df)
 cox_results <- run_cox_analysis(df, surv_model)
-AIC(cox_results$res)
-
+print("PFS:")
+print(AIC(cox_results$res))
+print(BIC(cox_results$res))
+print("\n")
 
 # Save Cox Analysis PFS Results
 sink("results/cox_pfs_results.txt")
